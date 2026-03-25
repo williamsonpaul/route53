@@ -1,13 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configuration
-APP_NAME="${APP_NAME:-myapp}"
-DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-development.mydomain}"
+usage() {
+  echo "Usage: $(basename "$0") --app-name <name> --domain <suffix> [--ttl <seconds>] [--dry-run]"
+  echo ""
+  echo "  --app-name   Application name (e.g. my-app-service)"
+  echo "  --domain     Domain suffix (e.g. development.mydomain)"
+  echo "  --ttl        DNS TTL in seconds (default: 60)"
+  echo "  --dry-run    Print what would be done without making changes"
+  exit 1
+}
+
+# Defaults (can be overridden by env vars or flags)
+APP_NAME="${APP_NAME:-}"
+DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
 TTL="${TTL:-60}"
 DRY_RUN=false
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=true
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app-name)  APP_NAME="$2";    shift 2 ;;
+    --domain)    DOMAIN_SUFFIX="$2"; shift 2 ;;
+    --ttl)       TTL="$2";         shift 2 ;;
+    --dry-run)   DRY_RUN=true;     shift ;;
+    *)           echo "Unknown option: $1" >&2; usage ;;
+  esac
+done
+
+[[ -z "${APP_NAME}" ]]     && echo "ERROR: --app-name is required" >&2 && usage
+[[ -z "${DOMAIN_SUFFIX}" ]] && echo "ERROR: --domain is required" >&2 && usage
+
+if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN — no changes will be made ***"
 fi
 
@@ -29,7 +52,11 @@ AZ=$(curl -s \
 AZ_SUFFIX="${AZ: -1}"
 AZ_INDEX=$(python3 -c "import string; print(string.ascii_lowercase.index('${AZ_SUFFIX}'))")
 
-FQDN="${APP_NAME}-${AZ_INDEX}.${DOMAIN_SUFFIX}"
+# Inject AZ index before the last hyphen-separated segment
+# e.g. my-app-service -> my-app-0-service
+APP_PREFIX="${APP_NAME%-*}"
+APP_SUFFIX="${APP_NAME##*-}"
+FQDN="${APP_PREFIX}-${AZ_INDEX}-${APP_SUFFIX}.${DOMAIN_SUFFIX}"
 
 # Look up hosted zone ID by searching for the best-match zone for DOMAIN_SUFFIX
 # Route 53 zone names are stored with a trailing dot
