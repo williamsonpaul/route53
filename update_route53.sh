@@ -198,7 +198,9 @@ UPSERT_BATCH=$(cat <<EOF
 EOF
 )
 
-if [[ "${DRY_RUN}" == true ]]; then
+if [[ "${STALE_IP}" == "${INSTANCE_IP}" ]]; then
+  echo "Record ${FQDN} -> ${INSTANCE_IP} already exists, skipping upsert."
+elif [[ "${DRY_RUN}" == true ]]; then
   echo ""
   echo "Would run:"
   echo "  aws route53 change-resource-record-sets \\"
@@ -207,13 +209,12 @@ if [[ "${DRY_RUN}" == true ]]; then
   echo ""
   echo "*** DRY RUN complete — no changes made ***"
   exit 0
+else
+  aws route53 change-resource-record-sets \
+    --hosted-zone-id "${HOSTED_ZONE_ID}" \
+    --change-batch "${UPSERT_BATCH}"
+  echo "Route 53 record updated: ${FQDN} -> ${INSTANCE_IP}"
 fi
-
-aws route53 change-resource-record-sets \
-  --hosted-zone-id "${HOSTED_ZONE_ID}" \
-  --change-batch "${UPSERT_BATCH}"
-
-echo "Route 53 record updated: ${FQDN} -> ${INSTANCE_IP}"
 
 # Wait for the record to be resolvable, timeout after 10 minutes
 echo "Waiting for DNS record to propagate..."
