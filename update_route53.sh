@@ -217,7 +217,7 @@ else
 fi
 
 # Wait for the record to be resolvable, timeout after 10 minutes
-echo "Waiting for DNS record to propagate..."
+echo "Checking the DNS has propagated..."
 TIMEOUT=600
 INTERVAL=15
 ELAPSED=0
