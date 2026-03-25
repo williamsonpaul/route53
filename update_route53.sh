@@ -99,7 +99,7 @@ STALE_RECORD=$(aws route53 list-resource-record-sets \
 STALE_IP=$(echo "${STALE_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['ResourceRecords'][0]['Value'] if r else '')" 2>/dev/null || true)
 STALE_TTL=$(echo "${STALE_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['TTL'] if r else '')" 2>/dev/null || true)
 
-if [[ -n "${STALE_IP}" && "${STALE_IP}" != "None" ]]; then
+if [[ -n "${STALE_IP}" && "${STALE_IP}" != "None" && "${STALE_IP}" != "${INSTANCE_IP}" ]]; then
   DELETE_BATCH=$(cat <<EOF
 {
   "Comment": "Delete stale A record for ${FQDN}",
