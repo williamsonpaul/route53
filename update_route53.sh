@@ -2,11 +2,12 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> [--ttl <seconds>] [--dry-run]"
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <seconds>] [--dry-run]"
   echo ""
   echo "  --app-prefix  First part of app name (e.g. my-app)"
   echo "  --app-suffix  Last part of app name (e.g. service)"
   echo "  --domain      Domain suffix (e.g. development.mydomain)"
+  echo "  --proxy       HTTPS proxy URL (e.g. http://proxy.example.com:8080)"
   echo "  --ttl         DNS TTL in seconds (default: 15)"
   echo "  --dry-run     Print what would be done without making changes"
   echo ""
@@ -19,6 +20,7 @@ usage() {
 APP_PREFIX="${APP_PREFIX:-}"
 APP_SUFFIX="${APP_SUFFIX:-}"
 DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
+PROXY="${PROXY:-}"
 TTL="${TTL:-15}"
 DRY_RUN=false
 
@@ -27,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --app-prefix) APP_PREFIX="$2";    shift 2 ;;
     --app-suffix) APP_SUFFIX="$2";    shift 2 ;;
     --domain)     DOMAIN_SUFFIX="$2"; shift 2 ;;
+    --proxy)      PROXY="$2";         shift 2 ;;
     --ttl)        TTL="$2";           shift 2 ;;
     --dry-run)    DRY_RUN=true;       shift ;;
     *)            echo "Unknown option: $1" >&2; usage ;;
@@ -36,6 +39,9 @@ done
 [[ -z "${APP_PREFIX}" ]]    && echo "ERROR: --app-prefix is required" >&2 && usage
 [[ -z "${APP_SUFFIX}" ]]    && echo "ERROR: --app-suffix is required" >&2 && usage
 [[ -z "${DOMAIN_SUFFIX}" ]] && echo "ERROR: --domain is required" >&2 && usage
+[[ -z "${PROXY}" ]]         && echo "ERROR: --proxy is required" >&2 && usage
+
+export HTTPS_PROXY="${PROXY}"
 
 if [[ "${DRY_RUN}" == true ]]; then
   echo "*** DRY RUN — no changes will be made ***"
