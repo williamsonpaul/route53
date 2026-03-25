@@ -5,6 +5,11 @@ set -euo pipefail
 APP_NAME="${APP_NAME:-myapp}"
 DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-development.mydomain}"
 TTL="${TTL:-60}"
+DRY_RUN=false
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=true
+  echo "*** DRY RUN — no changes will be made ***"
+fi
 
 # IMDSv2: get token
 IMDS_TOKEN=$(curl -s -X PUT \
@@ -63,6 +68,13 @@ CHANGE_BATCH=$(cat <<EOF
 }
 EOF
 )
+
+if [[ "${DRY_RUN}" == true ]]; then
+  echo "Would apply the following Route 53 change:"
+  echo "${CHANGE_BATCH}"
+  echo "*** DRY RUN complete — no changes made ***"
+  exit 0
+fi
 
 aws route53 change-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
