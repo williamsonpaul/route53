@@ -2,17 +2,16 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> [--ttl <seconds>] [--delete] [--dry-run]"
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> [--ttl <seconds>] [--dry-run]"
   echo ""
   echo "  --app-prefix  First part of app name (e.g. my-app)"
   echo "  --app-suffix  Last part of app name (e.g. service)"
   echo "  --domain      Domain suffix (e.g. development.mydomain)"
   echo "  --ttl         DNS TTL in seconds (default: 15)"
-  echo "  --delete      Delete the A record instead of upserting it"
   echo "  --dry-run     Print what would be done without making changes"
   echo ""
-  echo "  Upsert: my-app-0-service.development.mydomain -> <instance IP>"
-  echo "  Delete: removes my-app-0-service.development.mydomain"
+  echo "  Deletes all existing A records for indices 0-2, then creates:"
+  echo "  my-app-0-service.development.mydomain -> <instance IP>"
   exit 1
 }
 
@@ -21,7 +20,6 @@ APP_PREFIX="${APP_PREFIX:-}"
 APP_SUFFIX="${APP_SUFFIX:-}"
 DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
 TTL="${TTL:-15}"
-DELETE=false
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -30,7 +28,6 @@ while [[ $# -gt 0 ]]; do
     --app-suffix) APP_SUFFIX="$2";    shift 2 ;;
     --domain)     DOMAIN_SUFFIX="$2"; shift 2 ;;
     --ttl)        TTL="$2";           shift 2 ;;
-    --delete)     DELETE=true;        shift ;;
     --dry-run)    DRY_RUN=true;       shift ;;
     *)            echo "Unknown option: $1" >&2; usage ;;
   esac
@@ -81,20 +78,53 @@ echo "IP:          ${INSTANCE_IP}"
 echo "Hosted zone: ${HOSTED_ZONE_ID}"
 echo "FQDN:        ${FQDN}"
 
-if [[ "${DELETE}" == true ]]; then
-  ACTION="DELETE"
-  COMMENT="Delete A record for ${FQDN}"
-else
-  ACTION="UPSERT"
-  COMMENT="Upsert A record for ${FQDN}"
-fi
+# Delete any existing A records for all AZ indices before creating the new one
+echo "Checking for existing records to clean up..."
+for i in 0 1 2; do
+  STALE_FQDN="${APP_PREFIX}-${i}-${APP_SUFFIX}.${DOMAIN_SUFFIX}"
+  STALE_IP=$(aws route53 list-resource-record-sets \
+    --hosted-zone-id "${HOSTED_ZONE_ID}" \
+    --query "ResourceRecordSets[?Name=='${STALE_FQDN}.'] | [?Type=='A'].ResourceRecords[0][0].Value" \
+    --output text)
 
-CHANGE_BATCH=$(cat <<EOF
+  if [[ -n "${STALE_IP}" && "${STALE_IP}" != "None" ]]; then
+    DELETE_BATCH=$(cat <<EOF
 {
-  "Comment": "${COMMENT}",
+  "Comment": "Delete stale A record for ${STALE_FQDN}",
   "Changes": [
     {
-      "Action": "${ACTION}",
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "${STALE_FQDN}",
+        "Type": "A",
+        "TTL": ${TTL},
+        "ResourceRecords": [
+          { "Value": "${STALE_IP}" }
+        ]
+      }
+    }
+  ]
+}
+EOF
+)
+    if [[ "${DRY_RUN}" == true ]]; then
+      echo "  Would delete: ${STALE_FQDN} -> ${STALE_IP}"
+    else
+      echo "  Deleting stale record: ${STALE_FQDN} -> ${STALE_IP}"
+      aws route53 change-resource-record-sets \
+        --hosted-zone-id "${HOSTED_ZONE_ID}" \
+        --change-batch "${DELETE_BATCH}"
+    fi
+  fi
+done
+
+# Upsert the new record for this instance
+UPSERT_BATCH=$(cat <<EOF
+{
+  "Comment": "Upsert A record for ${FQDN}",
+  "Changes": [
+    {
+      "Action": "UPSERT",
       "ResourceRecordSet": {
         "Name": "${FQDN}",
         "Type": "A",
@@ -114,7 +144,7 @@ if [[ "${DRY_RUN}" == true ]]; then
   echo "Would run:"
   echo "  aws route53 change-resource-record-sets \\"
   echo "    --hosted-zone-id ${HOSTED_ZONE_ID} \\"
-  echo "    --change-batch '${CHANGE_BATCH}'"
+  echo "    --change-batch '${UPSERT_BATCH}'"
   echo ""
   echo "*** DRY RUN complete — no changes made ***"
   exit 0
@@ -122,12 +152,7 @@ fi
 
 aws route53 change-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
-  --change-batch "${CHANGE_BATCH}"
-
-if [[ "${DELETE}" == true ]]; then
-  echo "Route 53 record deleted: ${FQDN}"
-  exit 0
-fi
+  --change-batch "${UPSERT_BATCH}"
 
 echo "Route 53 record updated: ${FQDN} -> ${INSTANCE_IP}"
 
