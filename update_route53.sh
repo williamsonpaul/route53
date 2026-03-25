@@ -89,6 +89,51 @@ echo "IP:          ${INSTANCE_IP}"
 echo "Hosted zone: ${HOSTED_ZONE_ID}"
 echo "FQDN:        ${FQDN}"
 
+# Delete records at other AZ indices that point to this instance's IP (stale from a previous AZ)
+echo "Checking other AZ indices for stale records pointing to ${INSTANCE_IP}..."
+for i in 0 1 2; do
+  if [[ "${i}" == "${AZ_INDEX}" ]]; then continue; fi
+  OTHER_FQDN="${APP_PREFIX}-${i}.${APP_SUFFIX}.${DOMAIN_SUFFIX}"
+  OTHER_RECORD=$(aws route53 list-resource-record-sets \
+    --hosted-zone-id "${HOSTED_ZONE_ID}" \
+    --query "ResourceRecordSets[?Name=='${OTHER_FQDN}.' && Type=='A'] | [0]" \
+    --output json)
+
+  OTHER_IP=$(echo "${OTHER_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['ResourceRecords'][0]['Value'] if r else '')" 2>/dev/null || true)
+  OTHER_TTL=$(echo "${OTHER_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['TTL'] if r else '')" 2>/dev/null || true)
+
+  if [[ "${OTHER_IP}" == "${INSTANCE_IP}" ]]; then
+    OTHER_DELETE_BATCH=$(cat <<EOF
+{
+  "Comment": "Delete stale A record for ${OTHER_FQDN}",
+  "Changes": [
+    {
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "${OTHER_FQDN}",
+        "Type": "A",
+        "TTL": ${OTHER_TTL},
+        "ResourceRecords": [
+          { "Value": "${OTHER_IP}" }
+        ]
+      }
+    }
+  ]
+}
+EOF
+)
+    if [[ "${DRY_RUN}" == true ]]; then
+      echo "  Would delete stale record: ${OTHER_FQDN} -> ${OTHER_IP}"
+    else
+      echo "  Deleting stale record: ${OTHER_FQDN} -> ${OTHER_IP}"
+      echo "  aws route53 change-resource-record-sets --hosted-zone-id ${HOSTED_ZONE_ID} --change-batch '${OTHER_DELETE_BATCH}'"
+      aws route53 change-resource-record-sets \
+        --hosted-zone-id "${HOSTED_ZONE_ID}" \
+        --change-batch "${OTHER_DELETE_BATCH}"
+    fi
+  fi
+done
+
 # Delete any existing A record for this AZ index before upserting the new one
 echo "Checking for existing record at ${FQDN}..."
 STALE_RECORD=$(aws route53 list-resource-record-sets \
