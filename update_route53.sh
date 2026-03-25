@@ -2,15 +2,17 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> [--ttl <seconds>] [--dry-run]"
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> [--ttl <seconds>] [--delete] [--dry-run]"
   echo ""
   echo "  --app-prefix  First part of app name (e.g. my-app)"
   echo "  --app-suffix  Last part of app name (e.g. service)"
   echo "  --domain      Domain suffix (e.g. development.mydomain)"
-  echo "  --ttl         DNS TTL in seconds (default: 60)"
+  echo "  --ttl         DNS TTL in seconds (default: 15)"
+  echo "  --delete      Delete the A record instead of upserting it"
   echo "  --dry-run     Print what would be done without making changes"
   echo ""
-  echo "  Result: my-app-0-service.development.mydomain"
+  echo "  Upsert: my-app-0-service.development.mydomain -> <instance IP>"
+  echo "  Delete: removes my-app-0-service.development.mydomain"
   exit 1
 }
 
@@ -18,7 +20,8 @@ usage() {
 APP_PREFIX="${APP_PREFIX:-}"
 APP_SUFFIX="${APP_SUFFIX:-}"
 DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
-TTL="${TTL:-60}"
+TTL="${TTL:-15}"
+DELETE=false
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -27,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --app-suffix) APP_SUFFIX="$2";    shift 2 ;;
     --domain)     DOMAIN_SUFFIX="$2"; shift 2 ;;
     --ttl)        TTL="$2";           shift 2 ;;
+    --delete)     DELETE=true;        shift ;;
     --dry-run)    DRY_RUN=true;       shift ;;
     *)            echo "Unknown option: $1" >&2; usage ;;
   esac
@@ -71,19 +75,26 @@ if [[ -z "${HOSTED_ZONE_ID}" ]]; then
   exit 1
 fi
 
-echo "AZ:         ${AZ}"
-echo "AZ index:   ${AZ_INDEX}"
-echo "IP:         ${INSTANCE_IP}"
+echo "AZ:          ${AZ}"
+echo "AZ index:    ${AZ_INDEX}"
+echo "IP:          ${INSTANCE_IP}"
 echo "Hosted zone: ${HOSTED_ZONE_ID}"
 echo "FQDN:        ${FQDN}"
 
-# Build Route 53 change batch
+if [[ "${DELETE}" == true ]]; then
+  ACTION="DELETE"
+  COMMENT="Delete A record for ${FQDN}"
+else
+  ACTION="UPSERT"
+  COMMENT="Upsert A record for ${FQDN}"
+fi
+
 CHANGE_BATCH=$(cat <<EOF
 {
-  "Comment": "Upsert A record for ${FQDN}",
+  "Comment": "${COMMENT}",
   "Changes": [
     {
-      "Action": "UPSERT",
+      "Action": "${ACTION}",
       "ResourceRecordSet": {
         "Name": "${FQDN}",
         "Type": "A",
@@ -112,6 +123,11 @@ fi
 aws route53 change-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
   --change-batch "${CHANGE_BATCH}"
+
+if [[ "${DELETE}" == true ]]; then
+  echo "Route 53 record deleted: ${FQDN}"
+  exit 0
+fi
 
 echo "Route 53 record updated: ${FQDN} -> ${INSTANCE_IP}"
 
