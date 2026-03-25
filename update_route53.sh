@@ -111,6 +111,7 @@ EOF
       echo "  Would delete: ${STALE_FQDN} -> ${STALE_IP}"
     else
       echo "  Deleting stale record: ${STALE_FQDN} -> ${STALE_IP}"
+      echo "  aws route53 change-resource-record-sets --hosted-zone-id ${HOSTED_ZONE_ID} --change-batch '${DELETE_BATCH}'"
       aws route53 change-resource-record-sets \
         --hosted-zone-id "${HOSTED_ZONE_ID}" \
         --change-batch "${DELETE_BATCH}"
