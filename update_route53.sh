@@ -70,8 +70,12 @@ EOF
 )
 
 if [[ "${DRY_RUN}" == true ]]; then
-  echo "Would apply the following Route 53 change:"
-  echo "${CHANGE_BATCH}"
+  echo ""
+  echo "Would run:"
+  echo "  aws route53 change-resource-record-sets \\"
+  echo "    --hosted-zone-id ${HOSTED_ZONE_ID} \\"
+  echo "    --change-batch '${CHANGE_BATCH}'"
+  echo ""
   echo "*** DRY RUN complete — no changes made ***"
   exit 0
 fi
