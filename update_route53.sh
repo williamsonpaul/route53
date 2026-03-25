@@ -61,9 +61,14 @@ AZ=$(curl -s \
   -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" \
   "http://169.254.169.254/latest/meta-data/placement/availability-zone")
 
-# Map AZ suffix (a=0, b=1, c=2, d=3, ...) to index
+# Map AZ suffix (a=0, b=1, c=2) to index
 AZ_SUFFIX="${AZ: -1}"
-AZ_INDEX=$(python3 -c "import string; print(string.ascii_lowercase.index('${AZ_SUFFIX}'))")
+case "${AZ_SUFFIX}" in
+  a) AZ_INDEX=0 ;;
+  b) AZ_INDEX=1 ;;
+  c) AZ_INDEX=2 ;;
+  *) echo "ERROR: Unexpected AZ suffix '${AZ_SUFFIX}' in AZ '${AZ}'" >&2; exit 1 ;;
+esac
 
 FQDN="${APP_PREFIX}-${AZ_INDEX}.${APP_SUFFIX}.${DOMAIN_SUFFIX}"
 
