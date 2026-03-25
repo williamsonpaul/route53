@@ -82,10 +82,13 @@ echo "FQDN:        ${FQDN}"
 echo "Checking for existing records to clean up..."
 for i in 0 1 2; do
   STALE_FQDN="${APP_PREFIX}-${i}-${APP_SUFFIX}.${DOMAIN_SUFFIX}"
-  STALE_IP=$(aws route53 list-resource-record-sets \
+  STALE_RECORD=$(aws route53 list-resource-record-sets \
     --hosted-zone-id "${HOSTED_ZONE_ID}" \
-    --query "ResourceRecordSets[?Name=='${STALE_FQDN}.'] | [?Type=='A'].ResourceRecords[0][0].Value" \
-    --output text)
+    --query "ResourceRecordSets[?Name=='${STALE_FQDN}.' && Type=='A'] | [0]" \
+    --output json)
+
+  STALE_IP=$(echo "${STALE_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['ResourceRecords'][0]['Value'] if r else '')" 2>/dev/null || true)
+  STALE_TTL=$(echo "${STALE_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['TTL'] if r else '')" 2>/dev/null || true)
 
   if [[ -n "${STALE_IP}" && "${STALE_IP}" != "None" ]]; then
     DELETE_BATCH=$(cat <<EOF
@@ -97,7 +100,7 @@ for i in 0 1 2; do
       "ResourceRecordSet": {
         "Name": "${STALE_FQDN}",
         "Type": "A",
-        "TTL": ${TTL},
+        "TTL": ${STALE_TTL},
         "ResourceRecords": [
           { "Value": "${STALE_IP}" }
         ]
