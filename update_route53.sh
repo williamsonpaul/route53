@@ -53,11 +53,7 @@ HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
   --output text | sed 's|/hostedzone/||')
 [[ -z "${HOSTED_ZONE_ID}" ]] && echo "ERROR: No hosted zone found for '${DOMAIN_SUFFIX}'" >&2 && exit 1
 
-printf "%-12s %s\n%-12s %s\n%-12s %s\n%-12s %s\n" \
-  "AZ:"         "${AZ} (index: ${AZ_INDEX})" \
-  "IP:"         "${INSTANCE_IP}" \
-  "Hosted zone:" "${HOSTED_ZONE_ID}" \
-  "FQDN:"       "${FQDN}"
+echo "AZ: ${AZ} (index: ${AZ_INDEX}) | IP: ${INSTANCE_IP} | Zone: ${HOSTED_ZONE_ID} | FQDN: ${FQDN}"
 
 EXISTING_IP=$(aws route53 list-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
