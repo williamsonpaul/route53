@@ -2,19 +2,18 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <seconds>] [--dry-run]"
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <seconds>]"
   echo ""
   echo "  --app-prefix  First part of app name (e.g. my-app)"
   echo "  --app-suffix  Last part of app name (e.g. service)"
   echo "  --domain      Domain suffix (e.g. development.mydomain)"
   echo "  --proxy       HTTPS proxy URL (e.g. http://proxy.example.com:8080)"
   echo "  --ttl         DNS TTL in seconds (default: 15)"
-  echo "  --dry-run     Print what would be done without making changes"
   exit 1
 }
 
 APP_PREFIX="${APP_PREFIX:-}" APP_SUFFIX="${APP_SUFFIX:-}" DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
-PROXY="${PROXY:-}" TTL="${TTL:-15}" DRY_RUN=false
+PROXY="${PROXY:-}" TTL="${TTL:-15}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,7 +22,6 @@ while [[ $# -gt 0 ]]; do
     --domain)     DOMAIN_SUFFIX="$2"; shift 2 ;;
     --proxy)      PROXY="$2";         shift 2 ;;
     --ttl)        TTL="$2";           shift 2 ;;
-    --dry-run)    DRY_RUN=true;       shift ;;
     *)            echo "Unknown option: $1" >&2; usage ;;
   esac
 done
@@ -34,7 +32,6 @@ done
 [[ -z "${PROXY}" ]]         && echo "ERROR: --proxy is required" >&2 && usage
 
 export HTTPS_PROXY="${PROXY}"
-[[ "${DRY_RUN}" == true ]] && echo "*** DRY RUN — no changes will be made ***"
 
 # Fetch instance metadata via IMDSv2
 IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
@@ -67,11 +64,6 @@ else
 {"Comment":"Upsert A record for ${FQDN}","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${TTL},"ResourceRecords":[{"Value":"${INSTANCE_IP}"}]}}]}
 EOF
 )
-  if [[ "${DRY_RUN}" == true ]]; then
-    echo "Would run: aws route53 change-resource-record-sets --hosted-zone-id ${HOSTED_ZONE_ID} --change-batch '${UPSERT_BATCH}'"
-    echo "*** DRY RUN complete — no changes made ***"
-    exit 0
-  fi
   aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${UPSERT_BATCH}"
   echo "Record updated: ${FQDN} -> ${INSTANCE_IP}"
 fi
