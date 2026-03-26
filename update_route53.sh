@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <seconds>]"
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <sethe record should not be updated conds>]"
   echo ""
   echo "  --app-prefix  First part of app name (e.g. my-app)"
   echo "  --app-suffix  Last part of app name (e.g. service)"
@@ -55,7 +55,8 @@ echo "AZ: ${AZ} (index: ${AZ_INDEX}) | IP: ${INSTANCE_IP} | Zone: ${HOSTED_ZONE_
 EXISTING_IP=$(aws route53 list-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
   --query "ResourceRecordSets[?Name=='${FQDN}.' && Type=='A'].ResourceRecords[0].Value | [0]" \
-  --output text)
+  --output text | tr -d '[:space:]')
+[[ "${EXISTING_IP}" == "None" ]] && EXISTING_IP=""
 
 if [[ "${EXISTING_IP}" == "${INSTANCE_IP}" ]]; then
   echo "Record already correct, skipping upsert."
