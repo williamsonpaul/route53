@@ -58,6 +58,7 @@ EXISTING_IP=$(aws route53 list-resource-record-sets \
   --output text | tr -d '[:space:]')
 [[ "${EXISTING_IP}" == "None" ]] && EXISTING_IP=""
 
+echo "DEBUG: EXISTING_IP='${EXISTING_IP}' INSTANCE_IP='${INSTANCE_IP}'"
 if [[ "${EXISTING_IP}" == "${INSTANCE_IP}" ]]; then
   echo "Record already correct, skipping upsert."
 else
