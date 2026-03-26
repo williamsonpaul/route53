@@ -35,7 +35,7 @@ export HTTPS_PROXY="${PROXY}"
 
 # Fetch instance metadata via IMDSv2
 IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-INSTANCE_IP=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/local-ipv4")
+INSTANCE_IP=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/local-ipv4" | tr -d '[:space:]')
 AZ=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/placement/availability-zone")
 
 case "${AZ: -1}" in
@@ -65,7 +65,7 @@ else
 {"Comment":"Upsert A record for ${FQDN}","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${TTL},"ResourceRecords":[{"Value":"${INSTANCE_IP}"}]}}]}
 EOF
 )
-  aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${UPSERT_BATCH}"
+  aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${UPSERT_BATCH}" > /dev/null
   echo "Record updated: ${FQDN} -> ${INSTANCE_IP}"
 fi
 
