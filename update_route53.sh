@@ -65,8 +65,9 @@ else
 {"Comment":"Upsert A record for ${FQDN}","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${TTL},"ResourceRecords":[{"Value":"${INSTANCE_IP}"}]}}]}
 EOF
 )
-  aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${UPSERT_BATCH}" > /dev/null
+  CHANGE_INFO=$(aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${UPSERT_BATCH}")
   echo "Record updated: ${FQDN} -> ${INSTANCE_IP}"
+  echo "${CHANGE_INFO}"
 fi
 
 echo "Checking the DNS has propagated..."
