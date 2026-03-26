@@ -37,10 +37,11 @@ export HTTPS_PROXY="${PROXY}"
 IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 INSTANCE_IP=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/local-ipv4" | tr -d '[:space:]')
 AZ=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/placement/availability-zone")
+AZ_ID=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/placement/availability-zone-id")
 
-case "${AZ: -1}" in
-  a) AZ_INDEX=0 ;; b) AZ_INDEX=1 ;; c) AZ_INDEX=2 ;;
-  *) echo "ERROR: Unexpected AZ suffix '${AZ: -1}' in AZ '${AZ}'" >&2; exit 1 ;;
+case "${AZ_ID##*-az}" in
+  1) AZ_INDEX=0 ;; 2) AZ_INDEX=1 ;; 3) AZ_INDEX=2 ;;
+  *) echo "ERROR: Unexpected AZ ID '${AZ_ID}'" >&2; exit 1 ;;
 esac
 
 FQDN="${APP_PREFIX}-${AZ_INDEX}.${APP_SUFFIX}.${DOMAIN_SUFFIX}"
@@ -50,7 +51,7 @@ HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
   --output text | sed 's|/hostedzone/||')
 [[ -z "${HOSTED_ZONE_ID}" ]] && echo "ERROR: No hosted zone found for '${DOMAIN_SUFFIX}'" >&2 && exit 1
 
-echo "AZ: ${AZ} (index: ${AZ_INDEX}) | IP: ${INSTANCE_IP} | Zone: ${HOSTED_ZONE_ID} | FQDN: ${FQDN}"
+echo "AZ: ${AZ} | AZ ID: ${AZ_ID} (index: ${AZ_INDEX}) | IP: ${INSTANCE_IP} | Zone: ${HOSTED_ZONE_ID} | FQDN: ${FQDN}"
 
 EXISTING_IP=$(aws route53 list-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
