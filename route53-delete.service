@@ -1,0 +1,18 @@
+[Unit]
+Description=Delete Route 53 A record on instance shutdown
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStop=/opt/scripts/delete_route53.sh \
+  --app-prefix my-app \
+  --app-suffix service \
+  --domain development.mydomain \
+  --proxy http://proxy.example.com:8080
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <seconds>]"
+  echo ""
+  echo "  --app-prefix  First part of app name (e.g. my-app)"
+  echo "  --app-suffix  Last part of app name (e.g. service)"
+  echo "  --domain      Domain suffix (e.g. development.mydomain)"
+  echo "  --proxy       HTTPS proxy URL (e.g. http://proxy.example.com:8080)"
+  echo "  --ttl         DNS TTL in seconds (default: 15)"
+  exit 1
+}
+
+APP_PREFIX="${APP_PREFIX:-}" APP_SUFFIX="${APP_SUFFIX:-}" DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
+PROXY="${PROXY:-}" TTL="${TTL:-15}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app-prefix) APP_PREFIX="$2";    shift 2 ;;
+    --app-suffix) APP_SUFFIX="$2";    shift 2 ;;
+    --domain)     DOMAIN_SUFFIX="$2"; shift 2 ;;
+    --proxy)      PROXY="$2";         shift 2 ;;
+    --ttl)        TTL="$2";           shift 2 ;;
+    *)            echo "Unknown option: $1" >&2; usage ;;
+  esac
+done
+
+[[ -z "${APP_PREFIX}" ]]    && echo "ERROR: --app-prefix is required" >&2 && usage
+[[ -z "${APP_SUFFIX}" ]]    && echo "ERROR: --app-suffix is required" >&2 && usage
+[[ -z "${DOMAIN_SUFFIX}" ]] && echo "ERROR: --domain is required" >&2 && usage
+[[ -z "${PROXY}" ]]         && echo "ERROR: --proxy is required" >&2 && usage
+
+export HTTPS_PROXY="${PROXY}"
+
+# Fetch instance metadata via IMDSv2
+IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_IP=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/local-ipv4" | tr -d '[:space:]')
+AZ=$(curl -s -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" "http://169.254.169.254/latest/meta-data/placement/availability-zone")
+
+case "${AZ: -1}" in
+  a) AZ_INDEX=0 ;; b) AZ_INDEX=1 ;; c) AZ_INDEX=2 ;;
+  *) echo "ERROR: Unexpected AZ suffix '${AZ: -1}' in AZ '${AZ}'" >&2; exit 1 ;;
+esac
+
+FQDN="${APP_PREFIX}-${AZ_INDEX}.${APP_SUFFIX}.${DOMAIN_SUFFIX}"
+
+HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
+  --query "HostedZones[?Name=='${DOMAIN_SUFFIX}.'].Id" \
+  --output text | sed 's|/hostedzone/||')
+[[ -z "${HOSTED_ZONE_ID}" ]] && echo "ERROR: No hosted zone found for '${DOMAIN_SUFFIX}'" >&2 && exit 1
+
+echo "AZ: ${AZ} (index: ${AZ_INDEX}) | IP: ${INSTANCE_IP} | Zone: ${HOSTED_ZONE_ID} | FQDN: ${FQDN}"
+
+EXISTING_IP=$(aws route53 list-resource-record-sets \
+  --hosted-zone-id "${HOSTED_ZONE_ID}" \
+  --query "ResourceRecordSets[?Name=='${FQDN}.' && Type=='A'].ResourceRecords[0].Value | [0]" \
+  --output json | tr -d '"')
+[[ "${EXISTING_IP}" == "null" ]] && EXISTING_IP=""
+
+if [[ -z "${EXISTING_IP}" ]]; then
+  echo "No record found for ${FQDN}, nothing to delete."
+  exit 0
+fi
+
+DELETE_BATCH=$(cat <<EOF
+{"Comment":"Delete A record for ${FQDN}","Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${TTL},"ResourceRecords":[{"Value":"${EXISTING_IP}"}]}}]}
+EOF
+)
+
+CHANGE_INFO=$(aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${DELETE_BATCH}")
+echo "Record deleted: ${FQDN} -> ${EXISTING_IP}"
+echo "${CHANGE_INFO}"
