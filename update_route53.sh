@@ -11,8 +11,7 @@ usage() {
   echo "  --ttl         DNS TTL in seconds (default: 15)"
   echo "  --dry-run     Print what would be done without making changes"
   echo ""
-  echo "  Deletes all existing A records for indices 0-2, then creates:"
-  echo "  my-app-0.service.development.mydomain -> <instance IP>"
+  echo "  Creates: my-app-0.service.development.mydomain -> <instance IP>"
   exit 1
 }
 
@@ -89,93 +88,14 @@ echo "IP:          ${INSTANCE_IP}"
 echo "Hosted zone: ${HOSTED_ZONE_ID}"
 echo "FQDN:        ${FQDN}"
 
-# Delete records at other AZ indices that point to this instance's IP (stale from a previous AZ)
-echo "Checking other AZ indices for stale records pointing to ${INSTANCE_IP}..."
-for i in 0 1 2; do
-  if [[ "${i}" == "${AZ_INDEX}" ]]; then continue; fi
-  OTHER_FQDN="${APP_PREFIX}-${i}.${APP_SUFFIX}.${DOMAIN_SUFFIX}"
-  OTHER_RECORD=$(aws route53 list-resource-record-sets \
-    --hosted-zone-id "${HOSTED_ZONE_ID}" \
-    --query "ResourceRecordSets[?Name=='${OTHER_FQDN}.' && Type=='A'] | [0]" \
-    --output json)
-
-  OTHER_IP=$(echo "${OTHER_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['ResourceRecords'][0]['Value'] if r else '')" 2>/dev/null || true)
-  OTHER_TTL=$(echo "${OTHER_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['TTL'] if r else '')" 2>/dev/null || true)
-
-  if [[ "${OTHER_IP}" == "${INSTANCE_IP}" ]]; then
-    OTHER_DELETE_BATCH=$(cat <<EOF
-{
-  "Comment": "Delete stale A record for ${OTHER_FQDN}",
-  "Changes": [
-    {
-      "Action": "DELETE",
-      "ResourceRecordSet": {
-        "Name": "${OTHER_FQDN}",
-        "Type": "A",
-        "TTL": ${OTHER_TTL},
-        "ResourceRecords": [
-          { "Value": "${OTHER_IP}" }
-        ]
-      }
-    }
-  ]
-}
-EOF
-)
-    if [[ "${DRY_RUN}" == true ]]; then
-      echo "  Would delete stale record: ${OTHER_FQDN} -> ${OTHER_IP}"
-    else
-      echo "  Deleting stale record: ${OTHER_FQDN} -> ${OTHER_IP}"
-      echo "  aws route53 change-resource-record-sets --hosted-zone-id ${HOSTED_ZONE_ID} --change-batch '${OTHER_DELETE_BATCH}'"
-      aws route53 change-resource-record-sets \
-        --hosted-zone-id "${HOSTED_ZONE_ID}" \
-        --change-batch "${OTHER_DELETE_BATCH}"
-    fi
-  fi
-done
-
-# Delete any existing A record for this AZ index before upserting the new one
+# Check if record already exists with the correct IP
 echo "Checking for existing record at ${FQDN}..."
-STALE_RECORD=$(aws route53 list-resource-record-sets \
+EXISTING_RECORD=$(aws route53 list-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
   --query "ResourceRecordSets[?Name=='${FQDN}.' && Type=='A'] | [0]" \
   --output json)
 
-STALE_IP=$(echo "${STALE_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['ResourceRecords'][0]['Value'] if r else '')" 2>/dev/null || true)
-STALE_TTL=$(echo "${STALE_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['TTL'] if r else '')" 2>/dev/null || true)
-
-if [[ -n "${STALE_IP}" && "${STALE_IP}" != "None" && "${STALE_IP}" != "${INSTANCE_IP}" ]]; then
-  DELETE_BATCH=$(cat <<EOF
-{
-  "Comment": "Delete stale A record for ${FQDN}",
-  "Changes": [
-    {
-      "Action": "DELETE",
-      "ResourceRecordSet": {
-        "Name": "${FQDN}",
-        "Type": "A",
-        "TTL": ${STALE_TTL},
-        "ResourceRecords": [
-          { "Value": "${STALE_IP}" }
-        ]
-      }
-    }
-  ]
-}
-EOF
-)
-  if [[ "${DRY_RUN}" == true ]]; then
-    echo "  Would delete: ${FQDN} -> ${STALE_IP}"
-  else
-    echo "  Deleting stale record: ${FQDN} -> ${STALE_IP}"
-    echo "  aws route53 change-resource-record-sets --hosted-zone-id ${HOSTED_ZONE_ID} --change-batch '${DELETE_BATCH}'"
-    aws route53 change-resource-record-sets \
-      --hosted-zone-id "${HOSTED_ZONE_ID}" \
-      --change-batch "${DELETE_BATCH}"
-  fi
-else
-  echo "  No existing record found."
-fi
+EXISTING_IP=$(echo "${EXISTING_RECORD}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['ResourceRecords'][0]['Value'] if r else '')" 2>/dev/null || true)
 
 # Upsert the new record for this instance
 UPSERT_BATCH=$(cat <<EOF
@@ -198,7 +118,7 @@ UPSERT_BATCH=$(cat <<EOF
 EOF
 )
 
-if [[ "${STALE_IP}" == "${INSTANCE_IP}" ]]; then
+if [[ "${EXISTING_IP}" == "${INSTANCE_IP}" ]]; then
   echo "Record ${FQDN} -> ${INSTANCE_IP} already exists, skipping upsert."
 elif [[ "${DRY_RUN}" == true ]]; then
   echo ""
@@ -216,7 +136,7 @@ else
   echo "Route 53 record updated: ${FQDN} -> ${INSTANCE_IP}"
 fi
 
-# Wait for the record to be resolvable, timeout after 10 minutes
+# Check the DNS has propagated
 echo "Checking the DNS has propagated..."
 TIMEOUT=600
 INTERVAL=15
