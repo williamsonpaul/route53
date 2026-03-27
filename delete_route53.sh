@@ -2,18 +2,17 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url> [--ttl <seconds>]"
+  echo "Usage: $(basename "$0") --app-prefix <prefix> --app-suffix <suffix> --domain <suffix> --proxy <url>"
   echo ""
   echo "  --app-prefix  First part of app name (e.g. my-app)"
   echo "  --app-suffix  Last part of app name (e.g. service)"
   echo "  --domain      Domain suffix (e.g. development.mydomain)"
   echo "  --proxy       HTTPS proxy URL (e.g. http://proxy.example.com:8080)"
-  echo "  --ttl         DNS TTL in seconds (default: 15)"
   exit 1
 }
 
 APP_PREFIX="${APP_PREFIX:-}" APP_SUFFIX="${APP_SUFFIX:-}" DOMAIN_SUFFIX="${DOMAIN_SUFFIX:-}"
-PROXY="${PROXY:-}" TTL="${TTL:-15}"
+PROXY="${PROXY:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -21,7 +20,6 @@ while [[ $# -gt 0 ]]; do
     --app-suffix) APP_SUFFIX="$2";    shift 2 ;;
     --domain)     DOMAIN_SUFFIX="$2"; shift 2 ;;
     --proxy)      PROXY="$2";         shift 2 ;;
-    --ttl)        TTL="$2";           shift 2 ;;
     *)            echo "Unknown option: $1" >&2; usage ;;
   esac
 done
@@ -53,11 +51,13 @@ HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
 
 echo "AZ: ${AZ} | AZ ID: ${AZ_ID} (index: ${AZ_INDEX}) | IP: ${INSTANCE_IP} | Zone: ${HOSTED_ZONE_ID} | FQDN: ${FQDN}"
 
-EXISTING_IP=$(aws route53 list-resource-record-sets \
+EXISTING_RECORD=$(aws route53 list-resource-record-sets \
   --hosted-zone-id "${HOSTED_ZONE_ID}" \
-  --query "ResourceRecordSets[?Name=='${FQDN}.' && Type=='A'].ResourceRecords[0].Value | [0]" \
-  --output json | tr -d '"')
-[[ "${EXISTING_IP}" == "null" ]] && EXISTING_IP=""
+  --query "ResourceRecordSets[?Name=='${FQDN}.' && Type=='A'] | [0]" \
+  --output json)
+
+EXISTING_IP=$(echo "${EXISTING_RECORD}" | tr -d '[:space:]' | grep -o '"Value":"[^"]*"' | head -1 | cut -d'"' -f4)
+EXISTING_TTL=$(echo "${EXISTING_RECORD}" | grep -o '"TTL":[0-9]*' | cut -d: -f2)
 
 if [[ -z "${EXISTING_IP}" ]]; then
   echo "No record found for ${FQDN}, nothing to delete."
@@ -65,7 +65,7 @@ if [[ -z "${EXISTING_IP}" ]]; then
 fi
 
 DELETE_BATCH=$(cat <<EOF
-{"Comment":"Delete A record for ${FQDN}","Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${TTL},"ResourceRecords":[{"Value":"${EXISTING_IP}"}]}}]}
+{"Comment":"Delete A record for ${FQDN}","Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${EXISTING_TTL},"ResourceRecords":[{"Value":"${EXISTING_IP}"}]}}]}
 EOF
 )
 
