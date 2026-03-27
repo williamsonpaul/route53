@@ -64,11 +64,23 @@ if [[ -z "${EXISTING_IP}" ]]; then
   exit 0
 fi
 
-DELETE_BATCH=$(cat <<EOF
-{"Comment":"Delete A record for ${FQDN}","Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${EXISTING_TTL},"ResourceRecords":[{"Value":"${EXISTING_IP}"}]}}]}
+TMPFILE=$(mktemp)
+trap "rm -f ${TMPFILE}" EXIT
+cat > "${TMPFILE}" <<EOF
+{
+  "Comment": "Delete A record for ${FQDN}",
+  "Changes": [{
+    "Action": "DELETE",
+    "ResourceRecordSet": {
+      "Name": "${FQDN}",
+      "Type": "A",
+      "TTL": ${EXISTING_TTL},
+      "ResourceRecords": [{ "Value": "${EXISTING_IP}" }]
+    }
+  }]
+}
 EOF
-)
 
-CHANGE_INFO=$(aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${DELETE_BATCH}")
+CHANGE_INFO=$(aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "file://${TMPFILE}")
 echo "Record deleted: ${FQDN} -> ${EXISTING_IP}"
 echo "${CHANGE_INFO}"

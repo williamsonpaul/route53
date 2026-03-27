@@ -62,11 +62,23 @@ EXISTING_IP=$(aws route53 list-resource-record-sets \
 if [[ "${EXISTING_IP}" == "${INSTANCE_IP}" ]]; then
   echo "Record already correct, skipping upsert."
 else
-  UPSERT_BATCH=$(cat <<EOF
-{"Comment":"Upsert A record for ${FQDN}","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"${FQDN}","Type":"A","TTL":${TTL},"ResourceRecords":[{"Value":"${INSTANCE_IP}"}]}}]}
+  TMPFILE=$(mktemp)
+  trap "rm -f ${TMPFILE}" EXIT
+  cat > "${TMPFILE}" <<EOF
+{
+  "Comment": "Upsert A record for ${FQDN}",
+  "Changes": [{
+    "Action": "UPSERT",
+    "ResourceRecordSet": {
+      "Name": "${FQDN}",
+      "Type": "A",
+      "TTL": ${TTL},
+      "ResourceRecords": [{ "Value": "${INSTANCE_IP}" }]
+    }
+  }]
+}
 EOF
-)
-  CHANGE_INFO=$(aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "${UPSERT_BATCH}")
+  CHANGE_INFO=$(aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" --change-batch "file://${TMPFILE}")
   echo "Record updated: ${FQDN} -> ${INSTANCE_IP}"
   echo "${CHANGE_INFO}"
 fi
