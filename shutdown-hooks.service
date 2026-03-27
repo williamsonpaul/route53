@@ -1,5 +1,5 @@
 [Unit]
-Description=Delete Route 53 A record on instance shutdown
+Description=Run shutdown hook scripts on instance termination
 DefaultDependencies=no
 Before=shutdown.target halt.target
 Conflicts=reboot.target
@@ -9,11 +9,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStop=/opt/scripts/delete_route53.sh \
-  --app-prefix my-app \
-  --app-suffix service \
-  --domain development.mydomain \
-  --proxy http://proxy.example.com:8080
+ExecStop=/bin/run-parts /etc/shutdown-hooks.d
 
 [Install]
 WantedBy=multi-user.target
