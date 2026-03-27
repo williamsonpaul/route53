@@ -2,23 +2,26 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") --auth <password> [--sentinel-port <port>] [--redis-port <port>] [--timeout <seconds>]"
+  echo "Usage: $(basename "$0") --redis-auth <password> --sentinel-auth <password> [--sentinel-port <port>] [--redis-port <port>] [--timeout <seconds>]"
   echo ""
-  echo "  --auth           Redis/Sentinel password (required)"
+  echo "  --redis-auth     Redis password (required)"
+  echo "  --sentinel-auth  Sentinel password (required)"
   echo "  --sentinel-port  Sentinel port (default: 26379)"
   echo "  --redis-port     Redis port (default: 6379)"
   echo "  --timeout        Max seconds to wait for election (default: 60)"
   exit 1
 }
 
-AUTH="${AUTH:-}"
+REDIS_AUTH="${REDIS_AUTH:-}"
+SENTINEL_AUTH="${SENTINEL_AUTH:-}"
 SENTINEL_PORT="${SENTINEL_PORT:-26379}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 TIMEOUT="${TIMEOUT:-60}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --auth)          AUTH="$2";          shift 2 ;;
+    --redis-auth)    REDIS_AUTH="$2";    shift 2 ;;
+    --sentinel-auth) SENTINEL_AUTH="$2"; shift 2 ;;
     --sentinel-port) SENTINEL_PORT="$2"; shift 2 ;;
     --redis-port)    REDIS_PORT="$2";    shift 2 ;;
     --timeout)       TIMEOUT="$2";       shift 2 ;;
@@ -26,11 +29,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -z "${AUTH}" ]] && echo "ERROR: --auth is required" >&2 && usage
+[[ -z "${REDIS_AUTH}" ]]    && echo "ERROR: --redis-auth is required" >&2 && usage
+[[ -z "${SENTINEL_AUTH}" ]] && echo "ERROR: --sentinel-auth is required" >&2 && usage
 
-redis_cmd()    { redis-cli -p "${REDIS_PORT}"    -a "${AUTH}" --no-auth-warning "$@"; }
-sentinel_cmd()     { redis-cli -p "${SENTINEL_PORT}" -a "${AUTH}" --no-auth-warning "$@"; }
-sentinel_cmd_raw() { redis-cli -p "${SENTINEL_PORT}" -a "${AUTH}" --no-auth-warning --raw "$@"; }
+redis_cmd()        { redis-cli -p "${REDIS_PORT}"    -a "${REDIS_AUTH}"    --no-auth-warning "$@"; }
+sentinel_cmd()     { redis-cli -p "${SENTINEL_PORT}" -a "${SENTINEL_AUTH}" --no-auth-warning "$@"; }
+sentinel_cmd_raw() { redis-cli -p "${SENTINEL_PORT}" -a "${SENTINEL_AUTH}" --no-auth-warning --raw "$@"; }
 
 # Check if this instance is the Redis master
 ROLE=$(redis_cmd ROLE | head -1)
@@ -71,7 +75,7 @@ ELAPSED=0
 INTERVAL=2
 
 until [[ "${ELAPSED}" -ge "${TIMEOUT}" ]]; do
-  NEW_MASTER=$(sentinel_cmd SENTINEL get-master-addr-by-name "${SENTINEL_MASTER}" | head -1 | tr -d '[:space:]')
+  NEW_MASTER=$(sentinel_cmd_raw SENTINEL get-master-addr-by-name "${SENTINEL_MASTER}" | head -1 | tr -d '[:space:]')
   if [[ -n "${NEW_MASTER}" && "${NEW_MASTER}" != "${INSTANCE_IP}" ]]; then
     echo "Election complete. New master: ${NEW_MASTER}"
     exit 0
