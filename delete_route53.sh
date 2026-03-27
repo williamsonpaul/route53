@@ -57,7 +57,7 @@ EXISTING_RECORD=$(aws route53 list-resource-record-sets \
   --output json)
 
 EXISTING_IP=$(echo "${EXISTING_RECORD}" | tr -d '[:space:]' | grep -o '"Value":"[^"]*"' | head -1 | cut -d'"' -f4)
-EXISTING_TTL=$(echo "${EXISTING_RECORD}" | grep -o '"TTL":[0-9]*' | cut -d: -f2)
+EXISTING_TTL=$(echo "${EXISTING_RECORD}" | grep -o '"TTL": *[0-9]*' | cut -d: -f2)
 
 if [[ -z "${EXISTING_IP}" ]]; then
   echo "No record found for ${FQDN}, nothing to delete."
